@@ -1,56 +1,96 @@
 const mongoose = require('mongoose');
 
+// Schema for individual products within a group
 const discountedProductSchema = new mongoose.Schema({
   productId: {
     type: String,
-    required: true
+    required: [true, 'Product ID is required']
   },
   title: {
     type: String,
-    required: true
+    required: [true, 'Product title is required'],
+    trim: true
   },
-  description: String,
+  description: {
+    type: String,
+    default: ''
+  },
   featuredImage: {
     url: String,
     altText: String
   }
-}, { _id: true });
+}, { 
+  _id: true,
+  timestamps: true 
+});
 
+// Schema for discount groups
 const groupSchema = new mongoose.Schema({
   group: {
     type: String,
-    required: true,
+    required: [true, 'Group name is required'],
     trim: true
   },
   percentage: {
     type: Number,
-    required: true,
-    min: 0,
-    max: 100
+    required: [true, 'Discount percentage is required'],
+    min: [0, 'Percentage cannot be negative'],
+    max: [100, 'Percentage cannot exceed 100']
   },
-  discounted_products: [discountedProductSchema]
-}, { _id: true });
+  discounted_products: {
+    type: [discountedProductSchema],
+    default: []
+  }
+}, { 
+  _id: true,
+  timestamps: true 
+});
 
+// Main schema for the group discount configuration
 const groupDiscountSchema = new mongoose.Schema({
   shopId: {
     type: String,
-    required: true,
+    required: [true, 'Shop ID is required'],
     unique: true,
-    index: true
+    index: true,
+    trim: true
   },
   groups: {
     type: [groupSchema],
+    default: [],
     validate: {
       validator: function(groups) {
-        // Ensure group names are unique within the array
-        const groupNames = groups.map(g => g.group.toLowerCase());
+        // Ensure group names are unique within the array (case-insensitive)
+        const groupNames = groups.map(g => g.group.toLowerCase().trim());
         return groupNames.length === new Set(groupNames).size;
       },
       message: 'Group names must be unique'
     }
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  collection: 'groupdiscounts'
 });
+
+// Indexes for better query performance
+groupDiscountSchema.index({ shopId: 1 });
+groupDiscountSchema.index({ 'groups.group': 1 });
+
+// Instance method to add a group
+groupDiscountSchema.methods.addGroup = function(groupData) {
+  this.groups.push(groupData);
+  return this.save();
+};
+
+// Instance method to remove a group
+groupDiscountSchema.methods.removeGroup = function(groupId) {
+  this.groups = this.groups.filter(g => g._id.toString() !== groupId.toString());
+  return this.save();
+};
+
+// Static method to find by shop
+groupDiscountSchema.statics.findByShop = function(shopId) {
+  return this.findOne({ shopId });
+};
 
 module.exports = mongoose.model('GroupDiscount', groupDiscountSchema);
