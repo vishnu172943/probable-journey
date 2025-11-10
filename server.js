@@ -25,7 +25,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 // Routes
-const groupDiscountRoutes = require('../routes/groupDiscount');
+const groupDiscountRoutes = require('./routes/GroupDiscount');
 app.use('/api/group-discount', groupDiscountRoutes);
 
 // Health check route
