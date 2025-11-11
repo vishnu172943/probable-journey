@@ -1,7 +1,7 @@
-const mongoose = require('mongoose');
+ const mongoose = require('mongoose');
 
-// Schema for individual products within a group
-const discountedProductSchema = new mongoose.Schema({
+// Schema for excluded products (stored at shop level, applies to all groups)
+const excludedProductSchema = new mongoose.Schema({
   productId: {
     type: String,
     required: [true, 'Product ID is required']
@@ -24,7 +24,7 @@ const discountedProductSchema = new mongoose.Schema({
   timestamps: true 
 });
 
-// Schema for discount groups
+// Schema for discount groups (simplified - no products stored here)
 const groupSchema = new mongoose.Schema({
   group: {
     type: String,
@@ -36,10 +36,6 @@ const groupSchema = new mongoose.Schema({
     required: [true, 'Discount percentage is required'],
     min: [0, 'Percentage cannot be negative'],
     max: [100, 'Percentage cannot exceed 100']
-  },
-  discounted_products: {
-    type: [discountedProductSchema],
-    default: []
   }
 }, { 
   _id: true,
@@ -52,7 +48,8 @@ const groupDiscountSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Shop ID is required'],
     unique: true,
-    trim: true
+    trim: true,
+    index: true
   },
   groups: {
     type: [groupSchema],
@@ -65,14 +62,23 @@ const groupDiscountSchema = new mongoose.Schema({
       },
       message: 'Group names must be unique'
     }
+  },
+  excludedProducts: {
+    type: [excludedProductSchema],
+    default: [],
+    validate: {
+      validator: function(products) {
+        // Ensure product IDs are unique within the array
+        const productIds = products.map(p => p.productId);
+        return productIds.length === new Set(productIds).size;
+      },
+      message: 'Product IDs must be unique in excluded products'
+    }
   }
 }, {
   timestamps: true,
   collection: 'groupdiscounts'
 });
-
-// Single index definition (removed duplicate from shopId field definition)
-groupDiscountSchema.index({ shopId: 1 });
 
 // Instance method to add a group
 groupDiscountSchema.methods.addGroup = function(groupData) {
@@ -83,6 +89,23 @@ groupDiscountSchema.methods.addGroup = function(groupData) {
 // Instance method to remove a group
 groupDiscountSchema.methods.removeGroup = function(groupId) {
   this.groups = this.groups.filter(g => g._id.toString() !== groupId.toString());
+  return this.save();
+};
+
+// Instance method to add excluded products
+groupDiscountSchema.methods.addExcludedProducts = function(products) {
+  // Remove duplicates based on productId
+  const existingIds = new Set(this.excludedProducts.map(p => p.productId));
+  const newProducts = products.filter(p => !existingIds.has(p.productId));
+  this.excludedProducts.push(...newProducts);
+  return this.save();
+};
+
+// Instance method to remove excluded product
+groupDiscountSchema.methods.removeExcludedProduct = function(productId) {
+  this.excludedProducts = this.excludedProducts.filter(
+    p => p._id.toString() !== productId.toString()
+  );
   return this.save();
 };
 
