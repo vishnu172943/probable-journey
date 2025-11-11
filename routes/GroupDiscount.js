@@ -2,167 +2,6 @@
 const router = express.Router();
 const GroupDiscount = require('../models/GroupDiscount');
 
-// ⚠️ IMPORTANT: Specific routes MUST come BEFORE general parameterized routes
-// Otherwise Express will match /:shopId first and treat "excluded-products" as a shopId
-
-// @route   POST /api/group-discount/:shopId/excluded-products
-// @desc    Update excluded products for a shop (replaces entire array)
-// @access  Public
-router.post('/:shopId/excluded-products', async (req, res) => {
-  try {
-    const { shopId } = req.params;
-    const { excludedProducts } = req.body;
-    
-    if (!shopId || shopId.trim() === '') {
-      return res.status(400).json({
-        success: false,
-        message: 'Shop ID is required'
-      });
-    }
-    
-    if (!Array.isArray(excludedProducts)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Excluded products must be an array'
-      });
-    }
-    
-    // Find or create config
-    let config = await GroupDiscount.findOne({ shopId: shopId.trim() });
-    
-    if (!config) {
-      // Create new config if it doesn't exist
-      config = new GroupDiscount({
-        shopId: shopId.trim(),
-        groups: [],
-        excludedProducts: []
-      });
-    }
-    
-    // Update excluded products (simple replacement)
-    config.excludedProducts = excludedProducts;
-    await config.save();
-    
-    res.json({
-      success: true,
-      message: `Excluded products updated successfully (${excludedProducts.length} products)`,
-      data: {
-        shopId: config.shopId,
-        excludedProducts: config.excludedProducts,
-        groups: config.groups
-      }
-    });
-  } catch (error) {
-    console.error('Error updating excluded products:', error);
-    
-    if (error.name === 'ValidationError') {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation error',
-        errors: Object.values(error.errors).map(e => e.message)
-      });
-    }
-    
-    res.status(500).json({
-      success: false,
-      message: 'Server error while updating excluded products',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-
-// @route   DELETE /api/group-discount/:shopId/excluded-product/:productId
-// @desc    Remove a single product from excluded products
-// @access  Public
-router.delete('/:shopId/excluded-product/:productId', async (req, res) => {
-  try {
-    const { shopId, productId } = req.params;
-    
-    if (!shopId || !productId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Shop ID and Product ID are required'
-      });
-    }
-    
-    const config = await GroupDiscount.findOneAndUpdate(
-      { shopId: shopId.trim() },
-      { 
-        $pull: { 
-          excludedProducts: { _id: productId } 
-        } 
-      },
-      { new: true }
-    );
-    
-    if (!config) {
-      return res.status(404).json({
-        success: false,
-        message: 'Configuration not found for this shop'
-      });
-    }
-    
-    res.json({
-      success: true,
-      message: 'Product removed from excluded list successfully',
-      data: config
-    });
-  } catch (error) {
-    console.error('Error removing excluded product:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while removing excluded product',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-
-// @route   DELETE /api/group-discount/:shopId/group/:groupId
-// @desc    Delete a specific group
-// @access  Public
-router.delete('/:shopId/group/:groupId', async (req, res) => {
-  try {
-    const { shopId, groupId } = req.params;
-    
-    if (!shopId || !groupId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Shop ID and Group ID are required'
-      });
-    }
-    
-    const config = await GroupDiscount.findOneAndUpdate(
-      { shopId: shopId.trim() },
-      { 
-        $pull: { 
-          groups: { _id: groupId } 
-        } 
-      },
-      { new: true }
-    );
-    
-    if (!config) {
-      return res.status(404).json({
-        success: false,
-        message: 'Configuration not found for this shop'
-      });
-    }
-    
-    res.json({
-      success: true,
-      message: 'Group deleted successfully',
-      data: config
-    });
-  } catch (error) {
-    console.error('Error deleting group:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while deleting group',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-});
-
 // @route   GET /api/group-discount/:shopId
 // @desc    Get configuration by shopId
 // @access  Public
@@ -192,6 +31,13 @@ router.get('/:shopId', async (req, res) => {
       });
     }
     
+    console.log('✅ GET config:', {
+      shopId: config.shopId,
+      groupsCount: config.groups?.length,
+      excludedProductsCount: config.excludedProducts?.length,
+      excludedProducts: config.excludedProducts
+    });
+    
     res.json({
       success: true,
       data: config,
@@ -214,6 +60,13 @@ router.post('/:shopId', async (req, res) => {
   try {
     const { shopId } = req.params;
     const { groups, excludedProducts } = req.body;
+    
+    console.log('📦 POST /:shopId - Request received');
+    console.log('📦 shopId:', shopId);
+    console.log('📦 groups count:', groups?.length);
+    console.log('📦 excludedProducts:', excludedProducts);
+    console.log('📦 excludedProducts type:', typeof excludedProducts);
+    console.log('📦 excludedProducts is array:', Array.isArray(excludedProducts));
     
     // Validation
     if (!shopId || shopId.trim() === '') {
@@ -266,10 +119,10 @@ router.post('/:shopId', async (req, res) => {
     // Prepare update data
     const updateData = {
       shopId: shopId.trim(),
-      groups
+      groups: groups
     };
     
-    // Include excludedProducts if provided
+    // Handle excludedProducts - always set it (even if empty array)
     if (excludedProducts !== undefined) {
       if (!Array.isArray(excludedProducts)) {
         return res.status(400).json({
@@ -277,8 +130,11 @@ router.post('/:shopId', async (req, res) => {
           message: 'Excluded products must be an array'
         });
       }
+      // Store only product IDs (strings)
       updateData.excludedProducts = excludedProducts;
     }
+    
+    console.log('💾 Update data:', JSON.stringify(updateData, null, 2));
     
     // Update or create configuration
     const config = await GroupDiscount.findOneAndUpdate(
@@ -291,16 +147,24 @@ router.post('/:shopId', async (req, res) => {
       }
     );
     
+    console.log('✅ Saved config:', {
+      shopId: config.shopId,
+      groupsCount: config.groups?.length,
+      excludedProductsCount: config.excludedProducts?.length,
+      excludedProducts: config.excludedProducts
+    });
+    
     res.json({
       success: true,
       message: 'Configuration saved successfully',
       data: config
     });
   } catch (error) {
-    console.error('Error saving config:', error);
+    console.error('❌ Error saving config:', error);
     
     // Handle validation errors
     if (error.name === 'ValidationError') {
+      console.error('❌ Validation errors:', error.errors);
       return res.status(400).json({
         success: false,
         message: 'Validation error',
@@ -311,6 +175,52 @@ router.post('/:shopId', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error while saving configuration',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// @route   DELETE /api/group-discount/:shopId/group/:groupId
+// @desc    Delete a specific group
+// @access  Public
+router.delete('/:shopId/group/:groupId', async (req, res) => {
+  try {
+    const { shopId, groupId } = req.params;
+    
+    if (!shopId || !groupId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Shop ID and Group ID are required'
+      });
+    }
+    
+    const config = await GroupDiscount.findOneAndUpdate(
+      { shopId: shopId.trim() },
+      { 
+        $pull: { 
+          groups: { _id: groupId } 
+        } 
+      },
+      { new: true }
+    );
+    
+    if (!config) {
+      return res.status(404).json({
+        success: false,
+        message: 'Configuration not found for this shop'
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Group deleted successfully',
+      data: config
+    });
+  } catch (error) {
+    console.error('Error deleting group:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while deleting group',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }

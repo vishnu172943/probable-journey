@@ -1,30 +1,6 @@
- const mongoose = require('mongoose');
+const mongoose = require('mongoose');
 
-// Schema for excluded products (stored at shop level, applies to all groups)
-const excludedProductSchema = new mongoose.Schema({
-  productId: {
-    type: String,
-    required: [true, 'Product ID is required']
-  },
-  title: {
-    type: String,
-    required: [true, 'Product title is required'],
-    trim: true
-  },
-  description: {
-    type: String,
-    default: ''
-  },
-  featuredImage: {
-    url: String,
-    altText: String
-  }
-}, { 
-  _id: true,
-  timestamps: true 
-});
-
-// Schema for discount groups (simplified - no products stored here)
+// Schema for discount groups (simple - just name and percentage)
 const groupSchema = new mongoose.Schema({
   group: {
     type: String,
@@ -63,14 +39,14 @@ const groupDiscountSchema = new mongoose.Schema({
       message: 'Group names must be unique'
     }
   },
+  // ✅ Simplified: Just an array of product IDs (Shopify GIDs)
   excludedProducts: {
-    type: [excludedProductSchema],
+    type: [String],
     default: [],
     validate: {
       validator: function(products) {
-        // Ensure product IDs are unique within the array
-        const productIds = products.map(p => p.productId);
-        return productIds.length === new Set(productIds).size;
+        // Ensure product IDs are unique
+        return products.length === new Set(products).size;
       },
       message: 'Product IDs must be unique in excluded products'
     }
@@ -92,20 +68,16 @@ groupDiscountSchema.methods.removeGroup = function(groupId) {
   return this.save();
 };
 
-// Instance method to add excluded products
-groupDiscountSchema.methods.addExcludedProducts = function(products) {
-  // Remove duplicates based on productId
-  const existingIds = new Set(this.excludedProducts.map(p => p.productId));
-  const newProducts = products.filter(p => !existingIds.has(p.productId));
-  this.excludedProducts.push(...newProducts);
+// Instance method to add excluded product IDs
+groupDiscountSchema.methods.addExcludedProducts = function(productIds) {
+  const uniqueIds = [...new Set([...this.excludedProducts, ...productIds])];
+  this.excludedProducts = uniqueIds;
   return this.save();
 };
 
-// Instance method to remove excluded product
+// Instance method to remove excluded product ID
 groupDiscountSchema.methods.removeExcludedProduct = function(productId) {
-  this.excludedProducts = this.excludedProducts.filter(
-    p => p._id.toString() !== productId.toString()
-  );
+  this.excludedProducts = this.excludedProducts.filter(id => id !== productId);
   return this.save();
 };
 
