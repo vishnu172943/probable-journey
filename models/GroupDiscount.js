@@ -52,7 +52,6 @@ const groupDiscountSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Shop ID is required'],
     unique: true,
-    index: true,
     trim: true
   },
   groups: {
@@ -72,9 +71,8 @@ const groupDiscountSchema = new mongoose.Schema({
   collection: 'groupdiscounts'
 });
 
-// Indexes for better query performance
+// Single index definition (removed duplicate from shopId field definition)
 groupDiscountSchema.index({ shopId: 1 });
-groupDiscountSchema.index({ 'groups.group': 1 });
 
 // Instance method to add a group
 groupDiscountSchema.methods.addGroup = function(groupData) {
