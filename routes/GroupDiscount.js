@@ -225,5 +225,138 @@ router.delete('/:shopId/group/:groupId', async (req, res) => {
     });
   }
 });
+// --------------------------------------------
+// NEW ROUTE: SYNC → Update Shopify Metafield
+// --------------------------------------------
+router.post('/sync', async (req, res) => {
+  console.log("🟦 /api/group-discount/sync HIT");
+
+  try {
+    const token = req.query.token;
+    const payload = req.body;
+
+    console.log("🔑 Token from URL:", token ? "RECEIVED" : "MISSING");
+    console.log("📦 Payload received:", JSON.stringify(payload, null, 2));
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing admin API access token in query params"
+      });
+    }
+
+    const { shopId, groups, excludedProducts } = payload;
+
+    console.log("🏬 shopId:", shopId);
+    console.log("📊 groups:", groups?.length);
+    console.log("🚫 excludedProducts:", excludedProducts?.length);
+
+    if (!shopId) {
+      return res.status(400).json({
+        success: false,
+        message: "shopId missing in payload"
+      });
+    }
+
+    // --------------------------------------------
+    // 1. Build the metafield value
+    // --------------------------------------------
+    const metafieldValue = JSON.stringify({
+      groups,
+      excludedProducts
+    });
+
+    console.log("🧩 Metafield JSON:", metafieldValue);
+
+    // --------------------------------------------
+    // 2. Make Shopify Admin API GraphQL Mutation
+    // --------------------------------------------
+    const mutationQuery = `
+      mutation updateMetafield($ownerId: ID!, $namespace: String!, $key: String!, $value: String!) {
+        metafieldsSet(metafields: [
+          {
+            ownerId: $ownerId,
+            namespace: $namespace,
+            key: $key,
+            type: "json",
+            value: $value
+          }
+        ]) {
+          metafields {
+            id
+            namespace
+            key
+            value
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    console.log("📡 Sending Admin API mutation...");
+
+    const shopDomain = shopId; // Example: "mystore.myshopify.com"
+
+    const adminResp = await fetch(`https://${shopDomain}/admin/api/2024-04/graphql.json`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": token
+      },
+      body: JSON.stringify({
+        query: mutationQuery,
+        variables: {
+          ownerId: `gid://shopify/Shop/${shopDomain}`, // OR use shop.graphqlAdminApiId if needed
+          namespace: "custom",
+          key: "discountconfigdata",
+          value: metafieldValue
+        }
+      })
+    });
+
+    const adminJson = await adminResp.json();
+
+    console.log("🛠 Admin API Result:", JSON.stringify(adminJson, null, 2));
+
+    if (adminJson?.errors) {
+      console.log("❌ Admin API top-level errors:", adminJson.errors);
+      return res.status(500).json({
+        success: false,
+        message: "Admin API returned errors",
+        errors: adminJson.errors
+      });
+    }
+
+    const userErrors = adminJson?.data?.metafieldsSet?.userErrors;
+    if (userErrors?.length) {
+      console.log("❌ Admin API user errors:", userErrors);
+      return res.status(400).json({
+        success: false,
+        message: "User errors while updating metafield",
+        errors: userErrors
+      });
+    }
+
+    console.log("✅ Metafield updated successfully");
+
+    return res.json({
+      success: true,
+      message: "Synced to Shopify metafield successfully",
+      metafield: adminJson?.data?.metafieldsSet?.metafields
+    });
+
+  } catch (error) {
+    console.error("❌ SYNC ROUTE ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error during metafield sync",
+      error: error.message
+    });
+  }
+});
+
 
 module.exports = router;
